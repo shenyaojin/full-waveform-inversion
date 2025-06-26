@@ -6,3 +6,7 @@ FWI demo in python. Just for fun.
 - tarfile
 - segyio
 - matplotlib
+
+# Note 
+
+Not implemented so far. The algorithm still has some issues.
