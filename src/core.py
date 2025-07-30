@@ -31,7 +31,17 @@ class FWIProblem:
         self.dt = config['dt']
 
         # --- Setup models and geometry ---
-        self.p_vel_true = io.convert_targz_segy_to_numpy(config['true_model_path'])
+        # --- IMPORTANT FIX: Check if the path is a string or a numpy array ---
+        if isinstance(config['true_model_path'], str):
+            # It's a file path, so load it from disk
+            self.p_vel_true = io.convert_targz_segy_to_numpy(config['true_model_path'])
+        else:
+            # It's already a numpy array (for synthetic tests)
+            print("Using provided numpy array as true model.")
+            self.p_vel_true = config['true_model_path']
+
+        if self.p_vel_true is None:
+            raise ValueError("Failed to load or receive the true velocity model.")
 
         self.grid = Grid(shape=self.p_vel_true.shape, spacing=config['grid_spacing'])
 
@@ -90,6 +100,10 @@ class FWIProblem:
                 nt=self.nt,
                 dt=self.dt
             )
+
+            # --- DEBUGGING: Print the max gradient value ---
+            max_abs_grad = np.max(np.abs(gradient))
+            print(f"  Max absolute gradient value: {max_abs_grad:.4e}")
 
             self.p_vel_current = gradient_descent_step(
                 model=self.p_vel_current,

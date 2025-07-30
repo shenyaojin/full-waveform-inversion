@@ -19,24 +19,6 @@ def solve_acoustic(
 ):
     """
     Solves the 2D acoustic wave equation using a finite-difference method.
-
-    Args:
-        vel_model (np.ndarray): The velocity model (nz, nx).
-        grid (Grid): The grid object defining the geometry.
-        source (Source): The source object.
-        receivers (Receivers): The receivers object.
-        nt (int): Number of time steps.
-        dt (float): Time step size.
-        free_surface (bool): If True, applies a free surface boundary condition at z=0.
-        boundary_width (int): The width of the absorbing boundary layer in grid points.
-        return_wavefield (bool): If True, returns the final wavefield snapshot.
-        store_wavefield (bool): If True, stores and returns the entire wavefield history.
-
-    Returns:
-        np.ndarray: The recorded seismic data (shot record).
-        (Optional) np.ndarray or list: Depends on the flags.
-                                       - Final wavefield if return_wavefield is True.
-                                       - Full wavefield history if store_wavefield is True.
     """
     print("Starting acoustic forward modeling...")
 
@@ -44,7 +26,15 @@ def solve_acoustic(
     nz, nx = grid.nz, grid.nx
     dz, dx = grid.dz, grid.dx
 
-    # Initialize wavefields
+    # --- CFL Stability Check ---
+    max_vel = np.max(vel_model)
+    cfl_val = max_vel * dt * np.sqrt(1 / dx ** 2 + 1 / dz ** 2)
+    if cfl_val >= 1.0:
+        raise ValueError(f"CFL condition not met. Value is {cfl_val:.2f}. "
+                         "Decrease dt or increase grid spacing.")
+    print(f"  CFL condition is met: {cfl_val:.2f} < 1.0")
+
+    # Initialize wavefields for t-dt, t, and t+dt
     u_prev = np.zeros(grid.shape, dtype=np.float32)
     u_curr = np.zeros(grid.shape, dtype=np.float32)
     u_next = np.zeros(grid.shape, dtype=np.float32)
@@ -65,19 +55,14 @@ def solve_acoustic(
 
     # --- Absorbing Boundary Conditions (ABC) Setup ---
     boundary_damp = np.ones(grid.shape, dtype=np.float32)
-    abs_coeff = 0.005  # Damping coefficient
-
+    abs_coeff = 0.005
     for i in range(boundary_width):
         val = np.exp(-(abs_coeff * (boundary_width - i)) ** 2)
         boundary_damp[:, i] *= val
         boundary_damp[:, nx - 1 - i] *= val
-
-    start_z = 1 if free_surface else 0
-    for i in range(start_z, boundary_width):
-        val = np.exp(-(abs_coeff * (boundary_width - i)) ** 2)
-        boundary_damp[i, :] *= val
     for i in range(boundary_width):
         val = np.exp(-(abs_coeff * (boundary_width - i)) ** 2)
+        boundary_damp[i, :] *= val
         boundary_damp[nz - 1 - i, :] *= val
 
     # --- Time-stepping loop ---
@@ -98,14 +83,24 @@ def solve_acoustic(
 
         receiver_data[it, :] = u_next[rec_iz, rec_ix]
 
-        u_prev, u_curr = u_curr, u_next
+        # --- IMPORTANT FIX: Use a circular pointer swap for wavefields ---
+        # This is the correct and efficient way to advance the wavefields in time
+        # without overwriting data needed for the next step.
+        u_prev, u_curr, u_next = u_curr, u_next, u_prev
 
+        # --- IMPORTANT FIX: Store a copy of the wavefield ---
+        # If we just store u_curr, we store a reference that will change.
         if store_wavefield:
-            u_all[it] = u_curr
+            u_all[it] = u_curr.copy()
 
         if (it + 1) % 500 == 0: print(f"  Forward modeling: Time step {it + 1}/{nt}")
 
     print("Forward modeling finished.")
+
+    # --- Sanity Check ---
+    if np.allclose(receiver_data, 0):
+        print(
+            "\nWARNING: The recorded data is all zero. Check simulation parameters (tmax, source/receiver locations).")
 
     # --- Return appropriate values ---
     if store_wavefield:

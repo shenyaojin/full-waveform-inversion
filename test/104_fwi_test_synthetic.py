@@ -82,6 +82,5 @@ def main():
     plot_velocity_model(final_model, grid=fwi_problem.grid, title="Final Inverted Model")
     plot_velocity_model(fwi_problem.p_vel_true, grid=fwi_problem.grid, title="True Model (For Comparison)")
 
-
 if __name__ == "__main__":
     main()
